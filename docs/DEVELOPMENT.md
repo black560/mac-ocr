@@ -123,7 +123,8 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
 ## 6. 运行行为
 
 - 启动：拉起 ollama sidecar（打包态）→ uvicorn(18765) → pywebview 窗口。
-  关闭窗口 = 退出整个应用（sidecar 由 atexit 终止）。
+  关闭窗口 = **立即退出整个应用**：主动终止 sidecar 后 `os._exit(0)`，
+  不等还在跑的推理请求（推理线程非 daemon，正常退出会被它拖住）。
 - 菜单栏"帮助"菜单：查看日志（定位到日志文件）、打开数据目录。macOS 上
   pywebview 6.x 的菜单回调无参调用，动作里不要依赖 window 参数。
 - 前端完全离线：marked.min.js 已内置（app/ui/，由 /marked.min.js 提供），
