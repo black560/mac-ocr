@@ -7,6 +7,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# pyinstaller 等装在 .venv 里，未激活 venv 时（如 CI）自动补 PATH
+[ -x ".venv/bin/pyinstaller" ] && export PATH="$PWD/.venv/bin:$PATH"
+
 ARCH=$(uname -m)
 [ "$ARCH" = "arm64" ] || { echo "必须在 Apple Silicon 上构建，当前 $ARCH"; exit 1; }
 [ -d models/paddleocr-vl ] || { echo "缺少 models/paddleocr-vl，先运行 scripts/download_models.sh"; exit 1; }
