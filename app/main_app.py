@@ -147,6 +147,11 @@ def main() -> None:
     _log("打开桌面窗口")
     webview.start(menu=_app_menus())  # 阻塞至窗口关闭
     _log("窗口已关闭，退出")
+    # 推理线程非 daemon，正常退出会等它在跑的请求结束才真正退出；
+    # 关窗应当立即退出：主动终止 sidecar（等效 atexit 钩子）后强制退出
+    if _ollama_proc is not None:
+        _ollama_proc.terminate()
+    os._exit(0)
 
 
 if __name__ == "__main__":
