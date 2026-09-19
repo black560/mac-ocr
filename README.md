@@ -1,4 +1,4 @@
-# mac-ocr — 板材货物明细提取（macOS 桌面版）
+# 货物明细提取工具（macOS 桌面版）
 
 `paddleocr-vl-web`（Docker 版）的 macOS 单机桌面化：打包为自包含 `OcrTool.app`，
 拷到任意 Apple Silicon Mac（16G 内存推荐）双击即用，完全离线。
