@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 本地大文件/生成物（CI 构建时自行下载，不进仓库）
+models/
+data/
+uploads/
+build/work/
+build/dist/
+*.zip
+
+.DS_Store

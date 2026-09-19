@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单据货物明细提取</title>
+<script src="/marked.min.js"></script>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --line:#e3e7ee; --txt:#1f2733; --sub:#66708a; --accent:#1a66d6; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); }
+  .wrap { max-width:1100px; margin:0 auto; padding:28px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  .sub { color:var(--sub); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:18px; }
+  label { display:block; font-weight:600; font-size:14px; margin:14px 0 6px; }
+  textarea { width:100%; min-height:230px; padding:12px; border:1px solid var(--line); border-radius:8px;
+             font:12.5px/1.55 Consolas,"Microsoft YaHei",monospace; resize:vertical; }
+  textarea:focus { outline:2px solid #bcd3f5; border-color:var(--accent); }
+  #drop { border:2px dashed #c3ccdb; border-radius:10px; padding:26px; text-align:center; color:var(--sub);
+          cursor:pointer; transition:.15s; }
+  #drop.hover { border-color:var(--accent); background:#f0f6ff; }
+  #fileList { margin-top:10px; font-size:13px; color:var(--txt); }
+  #fileList div { padding:2px 0; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:12px 28px;
+           font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled { background:#9db8de; cursor:not-allowed; }
+  .row { display:flex; gap:12px; align-items:center; margin-top:18px; }
+  .spin { width:18px; height:18px; border:3px solid #d6e2f5; border-top-color:var(--accent); border-radius:50%;
+          animation:sp 1s linear infinite; display:none; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  #status { font-size:13px; color:var(--sub); display:none; }
+  #error { display:none; background:#fdecec; color:#a33; border:1px solid #f5c6c6; border-radius:8px;
+           padding:12px 14px; margin-bottom:16px; white-space:pre-wrap; }
+  .md { line-height:1.7; font-size:14px; overflow-x:auto; }
+  .md table { border-collapse:collapse; margin:10px 0; width:100%; }
+  .md th, .md td { border:1px solid var(--line); padding:6px 10px; font-size:13px; }
+  .md th { background:#f2f5fa; }
+  .md pre { background:#f6f8fa; padding:12px; border-radius:8px; overflow-x:auto; font-size:12.5px; }
+  details { margin-top:14px; }
+  summary { cursor:pointer; color:var(--accent); font-size:13px; font-weight:600; }
+  .ocr-text { background:#f6f8fa; padding:12px; border-radius:8px; font:12px/1.6 Consolas,monospace;
+              white-space:pre-wrap; max-height:420px; overflow:auto; margin-top:8px; }
+  #xlsxLink { display:inline-block; margin-top:12px; color:var(--accent); font-weight:600; text-decoration:none; }
+  .pageblock h4 { margin:14px 0 4px; font-size:13px; color:var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>装箱单 / 合同 — 板材货物明细提取</h1>
+  <div class="sub">上传 PDF 或图片，PaddleOCR-VL 识别文字，再按提示词提取并汇总货物明细。结果支持导出 Excel。</div>
+  <div id="error"></div>
+
+  <div class="card">
+    <label>① 上传附件（可多选：PDF / PNG / JPG）</label>
+    <div id="drop">点击选择文件，或将文件拖拽到此处</div>
+    <input id="file" type="file" multiple accept=".pdf,image/*" style="display:none">
+    <div id="fileList"></div>
+
+    <label>② 提示词（可编辑）</label>
+    <textarea id="prompt">{{DEFAULT_PROMPT}}</textarea>
+
+    <div class="row">
+      <button id="go">开始提取</button>
+      <div class="spin" id="spin"></div>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <label style="margin-top:0">③ 提取结果</label>
+    <a id="xlsxLink" style="display:none" href="#">⬇ 下载 Excel（goods.xlsx，金额列带 $ 数字格式）</a>
+    <div id="result" class="md"></div>
+    <details>
+      <summary>查看各页 OCR 原文</summary>
+      <div id="ocrPages"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+const drop = document.getElementById('drop'), fileInput = document.getElementById('file');
+let picked = [];
+drop.onclick = () => fileInput.click();
+fileInput.onchange = () => { picked = [...fileInput.files]; showFiles(); };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('hover'); };
+drop.ondragleave = () => drop.classList.remove('hover');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hover'); picked = [...e.dataTransfer.files]; showFiles(); };
+function showFiles() {
+  document.getElementById('fileList').innerHTML =
+    picked.map(f => `<div>📎 ${f.name}（${(f.size/1024).toFixed(0)} KB）</div>`).join('');
+}
+function mdRender(text) {
+  if (window.marked) { marked.setOptions({breaks:true}); return marked.parse(text); }
+  return '<pre>' + text.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>';
+}
+document.getElementById('go').onclick = async () => {
+  const err = document.getElementById('error');
+  err.style.display = 'none';
+  if (!picked.length) { err.textContent = '请先选择 PDF 或图片文件。'; err.style.display = 'block'; return; }
+  const btn = document.getElementById('go'), spin = document.getElementById('spin'), st = document.getElementById('status');
+  btn.disabled = true; spin.style.display = 'inline-block'; st.style.display = 'inline';
+  st.textContent = '识别与分析中，多页文件可能需要几分钟，请勿关闭页面…';
+  const fd = new FormData();
+  picked.forEach(f => fd.append('files', f));
+  fd.append('prompt', document.getElementById('prompt').value);
+  try {
+    const r = await fetch('/analyze', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || ('HTTP ' + r.status));
+    document.getElementById('resultCard').style.display = 'block';
+    document.getElementById('result').innerHTML = mdRender(j.result);
+    if (j.xlsx_url) { const a = document.getElementById('xlsxLink'); a.href = j.xlsx_url; a.style.display = 'inline-block'; }
+    document.getElementById('ocrPages').innerHTML = j.pages.map(p =>
+      `<div class="pageblock"><h4>第 ${p.page} 页（${p.source}）</h4><div class="ocr-text">${p.ocr.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div></div>`).join('');
+    document.getElementById('resultCard').scrollIntoView({behavior:'smooth'});
+  } catch (e) {
+    err.textContent = '失败：' + (e.message.includes('detail') ? e.message : e.message) +
+      '\n提示：请查看运行日志（菜单栏 帮助 → 查看日志）。';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false; spin.style.display = 'none'; st.style.display = 'none';
+  }
+};
+</script>
+</body>
+</html>

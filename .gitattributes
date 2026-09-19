@@ -1,0 +1,6 @@
+* text=auto
+# shell 脚本在 macOS/Linux 上必须 LF，否则 bash 报 bad interpreter
+*.sh text eol=lf
+*.py text eol=lf
+*.spec text eol=lf
+*.yml text eol=lf

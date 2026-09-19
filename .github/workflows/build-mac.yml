@@ -1,0 +1,54 @@
+name: build-mac
+
+# 在 macOS arm64 runner 上构建自包含 OcrTool.app 并发布 zip 产物
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon runner
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m venv .venv
+          ./.venv/bin/pip install -r requirements.txt pyinstaller "huggingface_hub[cli]"
+
+      - name: 下载 OCR 模型
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
+        run: |
+          ./.venv/bin/huggingface-cli download PaddlePaddle/PaddleOCR-VL-1.6 \
+            --local-dir models/paddleocr-vl
+
+      - name: 安装 ollama 并拉取 LLM
+        run: |
+          brew install ollama
+          mkdir -p models/ollama
+          OLLAMA_MODELS="$PWD/models/ollama" ollama serve &
+          sleep 5
+          OLLAMA_MODELS="$PWD/models/ollama" ollama pull qwen3:4b-instruct-2507-q4_K_M
+          kill %1 || true
+
+      - name: 构建 .app
+        run: bash build/build_app.sh
+
+      - name: 冒烟测试（headless + mock OCR）
+        run: |
+          ./.venv/bin/pip install requests || true
+          OCR_BACKEND=mock LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+            ./.venv/bin/python tests/test_pipeline_mock.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OcrTool-macos-arm64
+          path: build/dist/OcrTool-macos-arm64.zip
+          retention-days: 14
