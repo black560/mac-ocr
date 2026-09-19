@@ -11,9 +11,9 @@ jobs:
     runs-on: macos-14   # Apple Silicon runner
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -47,7 +47,7 @@ jobs:
           OCR_BACKEND=mock LLM_BASE_URL=http://127.0.0.1:11434/v1 \
             ./.venv/bin/python tests/test_pipeline_mock.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: OcrTool-macos-arm64
           path: build/dist/OcrTool-macos-arm64.zip
