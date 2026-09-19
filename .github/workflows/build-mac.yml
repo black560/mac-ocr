@@ -22,11 +22,11 @@ jobs:
           python -m venv .venv
           ./.venv/bin/pip install -r requirements.txt pyinstaller "huggingface_hub[cli]"
 
+      # runner 直连 huggingface.co 即可（hf-mirror 仅供国内开发机，走镜像反而
+      # 会触发 hub 的元数据校验失败）
       - name: 下载 OCR 模型
-        env:
-          HF_ENDPOINT: https://hf-mirror.com
         run: |
-          ./.venv/bin/huggingface-cli download PaddlePaddle/PaddleOCR-VL-1.6 \
+          ./.venv/bin/hf download PaddlePaddle/PaddleOCR-VL-1.6 \
             --local-dir models/paddleocr-vl
 
       - name: 安装 ollama 并拉取 LLM
