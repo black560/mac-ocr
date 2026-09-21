@@ -101,7 +101,10 @@ macos-14 runner 上装依赖 → 下载两套模型 → pyinstaller → 组装 �
 上传 artifact `OcrTool-macos-arm64.zip`（约 5G，注意 artifact 上限，必要时改用 release 上传）。
 打包后会跑一次自检（`OcrTool --selftest`：真实 OCR 推理，见 §5 打包注意），
 失败会让构建变红并挡在传包之前——这是唯一能测出"打包漏收模块"的环节，
-因为 mock 冒烟测试根本不碰 transformers。
+因为 mock 冒烟测试根本不碰 transformers。自检强制 CPU（`MAC_OCR_FORCE_CPU=1`）：
+runner 是 7G 虚拟机，MPS 可用内存不够加载模型，实测报
+`MPS backend out of memory (MPS allocated: 0 bytes, ... max allowed: 7.93 GiB)`，
+属 runner 限制而非产物问题；真机 MPS 是否可用请在本地跑 `--selftest` 验证。
 
 ### 5.2 有 Mac 时本地构建
 
@@ -187,6 +190,8 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
 | `OCR_BACKEND` | transformers | transformers / mock |
 | `OCR_MODEL_ID` | PaddlePaddle/PaddleOCR-VL-1.6 | 无内置模型时的 HF 下载源 |
 | `MAC_OCR_MODELS_DIR` | Resources/models/paddleocr-vl | 内置 OCR 模型目录 |
+| `MAC_OCR_DEVICE` | 自动 mps > cuda > cpu | 强制推理设备：`mps`/`cpu`/`cuda` |
+| `MAC_OCR_FORCE_CPU` | - | 置 1 等效 `MAC_OCR_DEVICE=cpu`（MPS 显存不足时用） |
 | `OCR_MAX_NEW_TOKENS` | 3584 | 单页 OCR 最大生成长度 |
 | `MAC_OCR_NO_WINDOW` | - | 置 1 等效 `--headless` |
 

@@ -5,6 +5,7 @@
 - mock 后端：返回固定文本，供无模型环境的开发/测试使用。
 """
 import io
+import os
 import threading
 
 
@@ -59,13 +60,28 @@ class LocalOCR:
             masking_utils._ocrgo_compat = True
 
         src = self._resolve_model_path() or cfg.OCR_MODEL_ID
-        if torch.backends.mps.is_available():
-            self._device, dtype = "mps", torch.float16
+        # 设备：默认自动 mps > cuda > cpu；MAC_OCR_DEVICE=mps|cpu|cuda 可显式
+        # 指定（CI 与排查用），MAC_OCR_FORCE_CPU=1 等效 cpu
+        want = os.environ.get("MAC_OCR_DEVICE", "").strip().lower()
+        if not want and os.environ.get("MAC_OCR_FORCE_CPU"):
+            want = "cpu"
+        if want == "cpu":
+            dev = "cpu"
+        elif want == "mps":
+            dev = "mps"
+        elif want == "cuda":
+            dev = "cuda"
+        elif want:
+            raise ValueError(f"未知 MAC_OCR_DEVICE={want!r}（可选 mps/cpu/cuda）")
+        elif torch.backends.mps.is_available():
+            dev = "mps"
         elif torch.cuda.is_available():
-            self._device, dtype = "cuda", torch.float16  # Windows 开发机有 N 卡时
+            dev = "cuda"  # Windows 开发机有 N 卡时
         else:
-            # CPU 用 bf16：与原始权重同精度，内存减半（fp32 会翻倍到 3.6G）
-            self._device, dtype = "cpu", torch.bfloat16
+            dev = "cpu"
+        # CPU 用 bf16：与原始权重同精度，内存减半（fp32 会翻倍到 3.6G）
+        self._device, dtype = (
+            dev, torch.float16 if dev in ("mps", "cuda") else torch.bfloat16)
         _log(f"加载 {src} 到 {self._device}（首次约需 10-60 秒）...")
         self._processor = AutoProcessor.from_pretrained(src, trust_remote_code=True)
         # 模型仓库把 PaddleOCRVLForConditionalGeneration 注册在 AutoModelForCausalLM

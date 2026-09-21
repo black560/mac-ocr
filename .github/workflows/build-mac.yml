@@ -49,9 +49,12 @@ jobs:
 
       # mock 冒烟不碰 transformers，打包漏收模块测不出来（曾在真机表现为
       # ModuleNotFoundError: Could not import module 'AutoProcessor'），
-      # 故这里直接运行打包后的 .app 走一次真实 OCR 推理
+      # 故这里直接运行打包后的 .app 走一次真实 OCR 推理。
+      # 强制 CPU：runner 的 MPS 可用内存不足，实测报
+      # "MPS backend out of memory (MPS allocated: 0 bytes, ... max allowed: 7.93 GiB)"
+      # ——那是 7G 虚拟机的限制，与产物无关；真机 MPS 请在本地跑 --selftest
       - name: 自检（打包产物真实 OCR 推理）
-        run: build/dist/OcrTool.app/Contents/MacOS/OcrTool --selftest
+        run: MAC_OCR_FORCE_CPU=1 build/dist/OcrTool.app/Contents/MacOS/OcrTool --selftest
 
       - uses: actions/upload-artifact@v6
         with:
