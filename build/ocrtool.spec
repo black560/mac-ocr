@@ -13,7 +13,7 @@
 """
 import os
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -37,7 +37,20 @@ hiddenimports = [
     "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
     "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan", "uvicorn.lifespan.on",
+    # torchvision 0.29+ 把编译扩展改名为 _C_stable/image_stable，torchvision
+    # 用 FileFinder 按物理文件路径加载（静态分析看不见），而 hooks-contrib
+    # 至今仍只收旧名 torchvision._C —— 不补这两个，frozen 里 import torchvision
+    # 会抛 "operator torchvision::nms does not exist"，进而让
+    # transformers.image_processing_auto 整条链失败，最终表现为
+    # ModuleNotFoundError: Could not import module 'AutoProcessor'
+    "torchvision._C_stable", "torchvision.image_stable",
 ]
+# transformers 的 Auto* 映射在运行时用字符串拼模块名 import（importlib.
+# import_module(f".{name}", "transformers.models")，见 tokenization_auto 等），
+# PyInstaller 静态分析看不到。PaddleOCR-VL 基于 ERNIE 4.5 且复用 Llama 分词器，
+# 缺 ernie4_5 家族即报 No module named 'transformers.models.ernie4_5'。
+# 全量收集 384 个模型家族，构建耗时仅增加约 1 分钟。
+hiddenimports += collect_submodules("transformers.models")
 
 a = Analysis(
     ["../run.py"],
