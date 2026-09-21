@@ -3,6 +3,7 @@
 用法：
     python -m app.main_app               # 开发态：窗口 + 本地服务
     python -m app.main_app --headless    # 无窗口（服务器/调试），Ctrl+C 退出
+    python -m app.main_app --selftest    # 自检：加载 OCR 模型跑一次极短推理后退出
     OcrTool.app（打包态）               # 双击启动，行为同上
 """
 import atexit
@@ -129,6 +130,21 @@ def _app_menus() -> "list":
 
 def main() -> None:
     _log(f"启动 {cfg.APP_TITLE}（frozen={cfg.is_frozen()}）")
+
+    # 打包自检：不启 ollama/服务/窗口，只验证真实 OCR 推理链路能否跑通。
+    # 失败时以非零码退出，让 CI 直接发现 frozen 产物缺模块等问题。
+    if "--selftest" in sys.argv:
+        from app.ocr_local import ocr
+        ocr.backend = "transformers"
+        _log("自检：加载 OCR 模型并对纯白图推理 ...")
+        try:
+            text = ocr.selftest()
+        except Exception as e:
+            _log(f"自检失败: {e!r}")
+            sys.exit(1)
+        print(f"SELFTEST-OK: {text[:60]!r}", flush=True)
+        return
+
     start_ollama_sidecar()
     start_server()
     url = f"http://127.0.0.1:{cfg.PORT}"

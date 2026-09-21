@@ -86,7 +86,7 @@ class LocalOCR:
                     _log(f"模型加载失败: {e!r}")
                     raise
 
-    def ocr(self, png_bytes: bytes) -> str:
+    def ocr(self, png_bytes: bytes, max_new_tokens: int | None = None) -> str:
         """输入 PNG 页面图，返回该页识别文本。"""
         if self.backend == "mock":
             from scripts.mock_model_server import FAKE_OCR
@@ -111,11 +111,24 @@ class LocalOCR:
             ).to(self._device)
             with torch.inference_mode():
                 out = self._model.generate(
-                    **inputs, max_new_tokens=cfg.OCR_MAX_NEW_TOKENS,
+                    **inputs,
+                    max_new_tokens=max_new_tokens or cfg.OCR_MAX_NEW_TOKENS,
                     do_sample=False)
             text = self._processor.batch_decode(
                 out[:, inputs.input_ids.shape[1]:], skip_special_tokens=True)[0]
             return text.strip()
+
+    def selftest(self) -> str:
+        """打包自检：加载模型并对纯白图跑一次极短推理。
+
+        走的是与真实请求完全相同的代码路径（processor → 前向 → 解码），
+        用于在 CI 里验证 frozen 产物，避免"mock 冒烟通过、真机 import 失败"。
+        """
+        import io as _io
+        from PIL import Image
+        buf = _io.BytesIO()
+        Image.new("RGB", (512, 512), "white").save(buf, format="PNG")
+        return self.ocr(buf.getvalue(), max_new_tokens=8)
 
 
 # 全局单例

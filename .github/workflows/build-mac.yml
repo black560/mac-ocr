@@ -47,6 +47,12 @@ jobs:
           OCR_BACKEND=mock LLM_BASE_URL=http://127.0.0.1:11434/v1 \
             ./.venv/bin/python tests/test_pipeline_mock.py
 
+      # mock 冒烟不碰 transformers，打包漏收模块测不出来（曾在真机表现为
+      # ModuleNotFoundError: Could not import module 'AutoProcessor'），
+      # 故这里直接运行打包后的 .app 走一次真实 OCR 推理
+      - name: 自检（打包产物真实 OCR 推理）
+        run: build/dist/OcrTool.app/Contents/MacOS/OcrTool --selftest
+
       - uses: actions/upload-artifact@v6
         with:
           name: OcrTool-macos-arm64
