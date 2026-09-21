@@ -99,6 +99,9 @@ LLM 上游接口：OpenAI 兼容 `POST {LLM_BASE_URL}/chat/completions`，模型
 推 tag `v*` 或手动 dispatch `.github/workflows/build-mac.yml`：
 macos-14 runner 上装依赖 → 下载两套模型 → pyinstaller → 组装 → ad-hoc 签名 →
 上传 artifact `OcrTool-macos-arm64.zip`（约 5G，注意 artifact 上限，必要时改用 release 上传）。
+打包后会跑一次自检（`OcrTool --selftest`：真实 OCR 推理，见 §5 打包注意），
+失败会让构建变红并挡在传包之前——这是唯一能测出"打包漏收模块"的环节，
+因为 mock 冒烟测试根本不碰 transformers。
 
 ### 5.2 有 Mac 时本地构建
 
@@ -115,6 +118,22 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
 - **onedir 而非 onefile**：PyInstaller 单文件模式每次启动解压 3G+ torch 到临时目录，
   冷启动要几分钟；onedir 的 .app 启动秒级。
 - torch/transformers 依赖 pyinstaller-hooks-contrib 的 hooks，保持其较新版本。
+- **torchvision 0.29+ 的编译扩展改名 `_C_stable`/`image_stable`**（不再是 `_C`），
+  由 `FileFinder` 按物理文件路径加载，静态分析看不见，而 hooks-contrib 至今仍只收
+  旧名。漏收时 frozen 里 `import torchvision` 抛
+  `operator torchvision::nms does not exist`，连带 transformers 的
+  `image_processing_auto` 整条链失败 → 真机表现为
+  `ModuleNotFoundError: Could not import module 'AutoProcessor'`。
+  ocrtool.spec 已把新旧两个名字都加进 hiddenimports（兼容低版本 torchvision）。
+- **transformers 的 Auto\* 映射按运行时字符串拼模块名 import**
+  （`importlib.import_module(f".{name}", "transformers.models")`，见
+  tokenization_auto / image_processing_auto / configuration_auto），静态分析看不到。
+  PaddleOCR-VL 基于 ERNIE 4.5、分词器复用 `LlamaTokenizerFast`，而
+  `TOKENIZER_MAPPING_NAMES` 中 ernie4_5 排在 llama 之前，故先 import
+  `transformers.models.ernie4_5`；该家族不在收集范围就报
+  `No module named 'transformers.models.ernie4_5'`。ocrtool.spec 已用
+  `collect_submodules("transformers.models")` 全量收集 384 个家族
+  （构建耗时约 +50 秒）。**加减 transformers 相关依赖后务必重跑一次自检。**
 - transformers 的远程代码（configuration_paddleocr_vl.py 等）已随模型目录本地化，
   打包时模型在 Resources/ 下，运行时 `trust_remote_code=True` 从本地加载，不联网。
 - ad-hoc 签名（`codesign -s -`）只保证本机可跑；分发给别人需要开发者签名+公证，
@@ -154,6 +173,7 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
 | 下载 xlsx 404 | 链接是一次性的；重新 /analyze 获取新链接 |
 | 端口被占 | `MAC_OCR_PORT`（默认 18765）/`MAC_OCR_OLLAMA_PORT`（默认 11435）换端口；11435 被占时 sidecar 会放弃启动并复用已有服务 |
 | PyInstaller 启动报 ModuleNotFoundError: uvicorn.xxx | hiddenimports 缺项，按报错补进 build/ocrtool.spec |
+| 点"开始提取"报 `Could not import module 'AutoProcessor'`（或 `No module named 'transformers.models.xxx'`、`operator torchvision::nms does not exist`） | 打包漏收模块，不是模型或网络问题。用 `OcrTool --selftest`（或开发态 `python -m app.main_app --selftest`）复现，修法见 §5 打包注意 |
 | .app 在别人机器上打不开 | Gatekeeper：右键 → 打开；或 `xattr -cr /Applications/OcrTool.app` |
 
 ### 7.3 环境变量速查

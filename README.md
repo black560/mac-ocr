@@ -15,6 +15,7 @@ python -m venv .venv
 .venv/Scripts/python tests/test_pipeline_mock.py       # 无模型冒烟测试
 bash scripts/download_models.sh                        # 下载 OCR 权重（~1.8G，走 hf-mirror）
 .venv/Scripts/python -m app.main_app --headless        # 起服务（LLM 需本机 ollama）
+.venv/Scripts/python -m app.main_app --selftest        # 自检：加载 OCR 模型跑一次真实推理
 # 浏览器打开 http://127.0.0.1:18765
 ```
 
