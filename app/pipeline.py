@@ -1,7 +1,7 @@
 """LLM（ollama）调用与流水线：PDF 转图、两段式分析、Excel 导出。"""
-import base64
 import io
 import re
+import time
 import uuid
 
 import fitz  # PyMuPDF
@@ -9,6 +9,11 @@ import httpx
 from fastapi import HTTPException
 
 import app.config as cfg
+from app.logutil import log
+
+
+def _log(msg: str) -> None:
+    log("pipe", msg)
 
 
 # ---------- PDF / 图片处理 ----------
@@ -136,13 +141,25 @@ _xlsx_store: dict[str, bytes] = {}
 
 
 def analyze(files: list[tuple[str, bytes, str]], prompt: str,
-            ocr_fn) -> dict:
-    """files: [(filename, bytes, content_type), ...]；ocr_fn(png_bytes)->str"""
+            ocr_fn, progress=None) -> dict:
+    """files: [(filename, bytes, content_type), ...]；ocr_fn(png_bytes)->str
+
+    progress(msg)：可选的进度回调，逐阶段上报人话（前端轮询展示用）。
+    """
+    def note(msg: str) -> None:
+        if progress is not None:
+            try:
+                progress(msg)
+            except Exception:  # 进度上报失败不该影响主流程
+                pass
+
     from app.ocr_local import ocr as local_ocr
 
     if not prompt.strip():
         raise HTTPException(400, "提示词不能为空")
 
+    started = time.time()
+    note("正在解析文件（PDF 转页面图）…")
     page_images: list[tuple[str, bytes, str]] = []
     for filename, data, content_type in files:
         if not data:
@@ -151,14 +168,25 @@ def analyze(files: list[tuple[str, bytes, str]], prompt: str,
             (filename, *t) for t in file_to_page_images(data, filename, content_type))
     if not page_images:
         raise HTTPException(400, "未收到有效的 PDF 或图片文件")
+    _log(f"待识别 {len(page_images)} 页，开始逐页 OCR")
 
     pages_text, per_page = [], []
     for idx, (src, img, _mime) in enumerate(page_images, 1):
+        # 首屏提示里点明"首次要加载模型"，避免冷启动那几十秒被当成卡死
+        note(f"OCR 第 {idx}/{len(page_images)} 页…" +
+             ("（首次运行需加载模型，约 10-60 秒）" if idx == 1 else ""))
+        t0 = time.time()
         text = local_ocr.ocr(img) if ocr_fn is None else ocr_fn(img)
+        _log(f"OCR 第 {idx}/{len(page_images)} 页完成：用时 {time.time() - t0:.1f}s，"
+             f"{len(text)} 字符")
         pages_text.append(f"--- PAGE {idx} ---\n{text}")
         per_page.append({"page": idx, "source": src, "ocr": text})
 
+    note("调用本地模型汇总货物明细…")
+    t0 = time.time()
     result = apply_prompt(prompt, "\n\n".join(pages_text))
+    _log(f"LLM 汇总完成：用时 {time.time() - t0:.1f}s")
+    note("生成 Excel…")
 
     xlsx_bytes = build_xlsx(result)
     xlsx_url = None
@@ -167,6 +195,7 @@ def analyze(files: list[tuple[str, bytes, str]], prompt: str,
         _xlsx_store[fid] = xlsx_bytes
         xlsx_url = f"/download/{fid}/goods.xlsx"
 
+    _log(f"全部完成：总用时 {time.time() - started:.1f}s")
     return {"result": result, "pages": per_page, "xlsx_url": xlsx_url}
 
 

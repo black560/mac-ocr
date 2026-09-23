@@ -37,8 +37,10 @@ xlsx 解析规则（容错、只取最后一个表格块）与 docker 版一致�
 mac-ocr/
 ├── app/
 │   ├── config.py       配置：路径、端口、模型名；开发/打包双态；环境变量覆盖
+│   ├── logutil.py      统一日志出口（stdout + data/mac-ocr.log，带 tag）
 │   ├── ocr_local.py    OCR 适配层（transformers / mock 双后端，懒加载，单例）
-│   ├── pipeline.py     PDF 转图、LLM 调用、xlsx 导出、analyze 流水线
+│   ├── pipeline.py     PDF 转图、LLM 调用、xlsx 导出、analyze 流水线（含进度回调）
+│   ├── jobs.py         分析任务注册表：后台线程执行 + 阶段进度查询
 │   ├── server.py       FastAPI 路由
 │   ├── main_app.py     入口：ollama sidecar 管理 + uvicorn + pywebview 窗口
 │   ├── default_prompt.py  默认提示词（与 docker 版同步维护）
@@ -84,8 +86,16 @@ LLM 在开发机连 `127.0.0.1:11434`（本机已装的 ollama），可用 `LLM_
 | 路由 | 方法 | 说明 |
 |---|---|---|
 | `/` | GET | 操作界面（HTML） |
-| `/analyze` | POST | multipart：`files`（可多文件，PDF/PNG/JPG）+ `prompt`（文本）。返回 `{result, pages:[{page,source,ocr}], xlsx_url}` |
+| `/analyze` | POST | multipart：`files`（可多文件，PDF/PNG/JPG）+ `prompt`（文本）。返回 `{result, pages:[{page,source,ocr}], xlsx_url}`。**同步跑完全程**，几分钟不回包，只适合脚本/curl（浏览器会中断，见下） |
+| `/analyze/start` | POST | 同样的 multipart，立即返回 `{job_id}`；分析在后台线程跑 |
+| `/analyze/status/{job_id}` | GET | 轮询：`{status: running\|done\|error, stage, ...}`；`running` 带当前阶段文案，`done` 附 `result/pages/xlsx_url`，`error` 附 `error` |
 | `/download/{fid}/goods.xlsx` | GET | 下载 Excel，**一次性**（下载后失效） |
+
+桌面窗口（WKWebView）前端走 `/analyze/start` + `/analyze/status` 这一对：
+WKWebView 对长时间收不到任何响应字节的请求会中断连接，前端 `fetch` 报
+`TypeError: Load failed`；而一次分析 = 逐页 OCR（每页几十秒）+ LLM 汇总，
+同步接口全程不回包，必然踩中。轮询把每个请求都压到秒级，顺便显示进度。
+`/analyze` 同步接口保留给脚本与 docker 版调用方。
 
 LLM 上游接口：OpenAI 兼容 `POST {LLM_BASE_URL}/chat/completions`，模型名
 `qwen3:4b-instruct-2507-q4_K_M`，上下文 16K（KV q8_0 量化）。
@@ -155,6 +165,10 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
   加载失败会记录 load_error 并在下次请求时重试。
 - 请求串行：OCR 持锁、ollama 单实例，排队处理；多页大单据 OCR 文本超过 LLM
   16K 上下文时尾部被截断（ollama 行为），建议分文件上传。
+- 长任务进度：界面用"提交 + 轮询"跑分析，状态栏持续显示当前阶段与已用时间
+  （`OCR 第 2/5 页…`、`调用本地模型汇总货物明细…`）。服务端逐阶段写日志
+  （`[pipe]` 逐页耗时、`[job]` 任务起止与失败原因），失败时任务置 error
+  并在界面显示原因。
 
 ## 7. 排查指南（Troubleshooting）
 
@@ -171,12 +185,14 @@ bash build/build_app.sh                              # 产出 build/dist/OcrTool
 |---|---|
 | 窗口打开但请求报 502 "LLM 服务返回错误 404 model does not exist" | ollama 未就绪或模型未拉取：`curl 127.0.0.1:11435/v1/models`；`ollama ps` 看是否加载；首次调用会加载模型（数十秒），期间 ollama 可能返回非 200 → 重试一次 |
 | 排查问题找不到日志 | 打包态用菜单栏 帮助 → 查看日志；headless/开发态看 `data/mac-ocr.log` |
-| 502 "处理失败：RuntimeError(...)" | OCR 推理崩溃，看 mac-ocr.log 中 `[ocr]` 行；MPS 显存不足时改用 CPU：环境变量 `MAC_OCR_FORCE_CPU=1`（见 ocr_local） |
+| 界面/接口报 `处理失败：RuntimeError(...)`（同步接口对 HTTP 状态是 502） | OCR 推理崩溃，看 mac-ocr.log 中 `[ocr]`、`[job]` 行；MPS 显存不足时改用 CPU：环境变量 `MAC_OCR_FORCE_CPU=1`（见 ocr_local） |
 | 模型加载慢/卡住 | 首次加载正常需 10-60s；超过 5 分钟看 log 是否卡在权重 mmap（磁盘慢），或杀进程重启 |
 | 下载 xlsx 404 | 链接是一次性的；重新 /analyze 获取新链接 |
 | 端口被占 | `MAC_OCR_PORT`（默认 18765）/`MAC_OCR_OLLAMA_PORT`（默认 11435）换端口；11435 被占时 sidecar 会放弃启动并复用已有服务 |
 | PyInstaller 启动报 ModuleNotFoundError: uvicorn.xxx | hiddenimports 缺项，按报错补进 build/ocrtool.spec |
 | 点"开始提取"报 `Could not import module 'AutoProcessor'`（或 `No module named 'transformers.models.xxx'`、`operator torchvision::nms does not exist`） | 打包漏收模块，不是模型或网络问题。用 `OcrTool --selftest`（或开发态 `python -m app.main_app --selftest`）复现，修法见 §5 打包注意 |
+| 界面报 `失败：Load failed` | 这是 **WKWebView 的报错文案**（fetch 在网络层被中断或连不上本地服务），不是服务端返回的消息——服务端的错误会显示成 `处理失败：...`。前端已改为"提交+轮询"（见 §4），正常不会再出现；若仍出现，看日志最后一行判断卡点：停在 `[job] xxx 开始` 之后见不到 `[pipe]`，且窗口也没了 → 进程崩溃；日志有 `[job] xxx 异常` 则按其 traceback 排查 |
+| 越跑越慢、结果出不来 | `curl 127.0.0.1:18765/analyze/status/<job_id>` 直接看任务阶段；`[pipe] OCR 第 n/m 页完成：用时 x 秒` 能看出每页耗时，逐页变慢多为内存压力（MPS 回退/换页），可试 `MAC_OCR_FORCE_CPU=1` |
 | .app 在别人机器上打不开 | Gatekeeper：右键 → 打开；或 `xattr -cr /Applications/OcrTool.app` |
 
 ### 7.3 环境变量速查

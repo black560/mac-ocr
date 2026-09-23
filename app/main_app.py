@@ -16,17 +16,11 @@ import time
 from pathlib import Path
 
 import app.config as cfg
+from app.logutil import log
 
 
 def _log(msg: str) -> None:
-    import datetime
-    line = f"[{datetime.datetime.now().isoformat(timespec='seconds')}] [app] {msg}"
-    print(line, flush=True)
-    try:
-        with open(cfg.log_file(), "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
+    log("app", msg)
 
 
 # ---------- 随包 ollama sidecar ----------
@@ -163,8 +157,9 @@ def main() -> None:
     _log("打开桌面窗口")
     webview.start(menu=_app_menus())  # 阻塞至窗口关闭
     _log("窗口已关闭，退出")
-    # 推理线程非 daemon，正常退出会等它在跑的请求结束才真正退出；
-    # 关窗应当立即退出：主动终止 sidecar（等效 atexit 钩子）后强制退出
+    # 关窗应当立即退出，不等还在跑的分析任务（任务跑在 job 线程里，
+    # 正常退出可能被推理/uvicorn 的非 daemon 线程拖住）：
+    # 主动终止 sidecar（等效 atexit 钩子）后强制退出
     if _ollama_proc is not None:
         _ollama_proc.terminate()
     os._exit(0)

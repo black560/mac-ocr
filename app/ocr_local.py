@@ -8,17 +8,11 @@ import io
 import os
 import threading
 
+from app.logutil import log
+
 
 def _log(msg: str) -> None:
-    from app.config import log_file
-    import datetime
-    line = f"[{datetime.datetime.now().isoformat(timespec='seconds')}] [ocr] {msg}"
-    print(line, flush=True)
-    try:
-        with open(log_file(), "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
+    log("ocr", msg)
 
 
 class LocalOCR:

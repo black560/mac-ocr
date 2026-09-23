@@ -30,7 +30,7 @@ for _m in ("objc", "AppKit", "Foundation", "WebKit", "Quartz", "PyObjCTools"):
         pass
 hiddenimports = [
     "app.config", "app.ocr_local", "app.pipeline", "app.server",
-    "app.default_prompt", "app.main_app",
+    "app.default_prompt", "app.main_app", "app.jobs", "app.logutil",
     # pywebview 的后端在函数内 import，显式声明防漏
     "webview.platforms.cocoa",
     "uvicorn.logging", "uvicorn.loops", "uvicorn.loops.auto",
