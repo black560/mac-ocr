@@ -3,7 +3,7 @@
 用法：
     python -m app.main_app               # 开发态：窗口 + 本地服务
     python -m app.main_app --headless    # 无窗口（服务器/调试），Ctrl+C 退出
-    python -m app.main_app --selftest    # 自检：加载 OCR 模型跑一次极短推理后退出
+    python -m app.main_app --selftest    # 自检：import HTTP 层 + 加载 OCR 模型跑一次极短推理后退出
     OcrTool.app（打包态）               # 双击启动，行为同上
 """
 import atexit
@@ -130,8 +130,12 @@ def main() -> None:
     if "--selftest" in sys.argv:
         from app.ocr_local import ocr
         ocr.backend = "transformers"
-        _log("自检：加载 OCR 模型并对纯白图推理 ...")
+        _log("自检：import HTTP 层 + 加载 OCR 模型并对纯白图推理 ...")
         try:
+            # 请求路径上的模块（app.server → app.pipeline / app.jobs）和 UI 静态
+            # 资源只在收请求时才用到，漏收平时测不出来，先 import 一遍兜住
+            import app.server as server
+            assert server.TEMPLATE and server.MARKED_JS, "UI 静态资源未打包"
             text = ocr.selftest()
         except Exception as e:
             _log(f"自检失败: {e!r}")

@@ -109,8 +109,9 @@ LLM 上游接口：OpenAI 兼容 `POST {LLM_BASE_URL}/chat/completions`，模型
 推 tag `v*` 或手动 dispatch `.github/workflows/build-mac.yml`：
 macos-14 runner 上装依赖 → 下载两套模型 → pyinstaller → 组装 → ad-hoc 签名 →
 上传 artifact `OcrTool-macos-arm64.zip`（约 5G，注意 artifact 上限，必要时改用 release 上传）。
-打包后会跑一次自检（`OcrTool --selftest`：真实 OCR 推理，见 §5 打包注意），
-失败会让构建变红并挡在传包之前——这是唯一能测出"打包漏收模块"的环节，
+打包后会跑一次自检（`OcrTool --selftest`：先 import 一遍 HTTP 层
+（app.server → app.pipeline / app.jobs）并校验 UI 静态资源已打包，再跑真实 OCR
+推理，见 §5 打包注意），失败会让构建变红并挡在传包之前——这是唯一能测出"打包漏收模块"的环节，
 因为 mock 冒烟测试根本不碰 transformers。自检强制 CPU（`MAC_OCR_FORCE_CPU=1`）：
 runner 是 7G 虚拟机，MPS 可用内存不够加载模型，实测报
 `MPS backend out of memory (MPS allocated: 0 bytes, ... max allowed: 7.93 GiB)`，
